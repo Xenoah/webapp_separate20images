@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隙間トリム写真分割</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+/* layout: one column tool. preview on top (sticky-free), settings below, pieces row at the end */
+:root{
+  --bg:#eef1f0; --panel:#ffffff; --ink:#16211f; --muted:#5d6c69; --line:#cfd8d5;
+  --accent:#0b7a6b; --accent-ink:#ffffff; --gapcolor:#0d1413; --warn:#b3401f;
+  --font-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;
+  --font-display:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1514; --panel:#18211f; --ink:#e8efed; --muted:#93a39f; --line:#2c3a37;
+    --accent:#43cdb6; --accent-ink:#06211c; --gapcolor:#000000; --warn:#ff9470;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1514; --panel:#18211f; --ink:#e8efed; --muted:#93a39f; --line:#2c3a37;
+  --accent:#43cdb6; --accent-ink:#06211c; --gapcolor:#000000; --warn:#ff9470;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.6}
+main{max-width:760px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+h1{font-family:var(--font-display);font-weight:900;font-size:22px;line-height:1.25;margin:0;text-wrap:balance}
+h2{font-size:13px;font-weight:700;color:var(--muted);margin:0;letter-spacing:.04em}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:12px}
+button,.filebtn{font:inherit;font-weight:700;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 16px;cursor:pointer;min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+button.primary,.filebtn{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,.filebtn:focus-within,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.filebtn input{position:absolute;width:1px;height:1px;opacity:0}
+.filebtn{position:relative}
+.stage{background:var(--gapcolor);border-radius:8px;padding:10px;display:flex;justify-content:center;overflow:hidden}
+#preview{display:block;max-width:100%;max-height:70vh;height:auto;width:auto}
+.stats{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.stats b{color:var(--ink);font-weight:700}
+.field{display:flex;flex-direction:column;gap:6px}
+.field>label,.field>.lab{font-weight:700;font-size:14px}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+input[type=range]{flex:1 1 160px;min-width:0;accent-color:var(--accent);height:32px}
+input[type=number],select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:42px;font-variant-numeric:tabular-nums}
+input[type=number]{width:84px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg label{padding:8px 14px;cursor:pointer;font-weight:500;min-height:40px;display:flex;align-items:center}
+.seg input{position:absolute;opacity:0;width:1px;height:1px}
+.seg input:checked+span{color:var(--accent-ink)}
+.seg label:has(input:checked){background:var(--accent);color:var(--accent-ink);font-weight:700}
+.seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:-4px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{min-height:34px;padding:4px 12px;font-weight:500;font-size:13px}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.switch{display:flex;align-items:center;gap:10px;font-weight:700;cursor:pointer}
+.switch input{width:22px;height:22px;accent-color:var(--accent)}
+.pieces{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}
+.piece{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.piece img{display:block;height:170px;width:auto;max-width:260px;object-fit:contain;border-radius:6px;background:var(--bg);border:1px solid var(--line)}
+.piece button{min-height:34px;padding:4px 10px;font-size:13px}
+#msg{font-size:13px;min-height:1.6em;margin:0}
+#msg.err{color:var(--warn)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>隙間トリム写真分割</h1>
+    <label class="filebtn">写真を選ぶ<input type="file" id="file" accept="image/*"></label>
+  </header>
+
+  <section class="panel" aria-label="プレビュー">
+    <h2>並べたときの見え方</h2>
+    <div class="stage"><canvas id="preview" width="800" height="340"></canvas></div>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="panel" aria-label="設定">
+    <div class="field">
+      <label for="nRange">分割数</label>
+      <div class="row">
+        <input type="range" id="nRange" min="2" max="20" step="1" value="5">
+        <input type="number" id="nNum" min="2" max="50" step="1" value="5" inputmode="numeric">
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="lab">並べる向き</span>
+      <div class="seg" role="radiogroup" aria-label="並べる向き">
+        <label><input type="radio" name="dir" id="dirH" value="h" checked><span>横に並べる</span></label>
+        <label><input type="radio" name="dir" id="dirV" value="v"><span>縦に並べる</span></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="gapRange">隙間の幅</label>
+      <div class="row">
+        <input type="range" id="gapRange" min="0" max="30" step="0.5" value="8">
+        <input type="number" id="gapNum" min="0" step="0.5" value="8" inputmode="decimal">
+        <select id="gapUnit" aria-label="隙間の単位">
+          <option value="pct">%（1枚の幅に対して）</option>
+          <option value="px">px（元画像）</option>
+        </select>
+      </div>
+      <div class="chips" id="presets">
+        <button type="button" data-g="1">細め 1%</button>
+        <button type="button" data-g="4">中 4%</button>
+        <button type="button" data-g="8">広め 8%</button>
+      </div>
+      <p class="hint">Xの横スクロール表示は、スクショから測ると1枚の幅の8%前後です。表示サイズで変わるので目安にしてください。</p>
+    </div>
+
+    <div class="field">
+      <label class="switch"><input type="checkbox" id="trim" checked>隙間の分を切り取る</label>
+      <p class="hint" id="trimHint"></p>
+    </div>
+
+    <div class="field">
+      <label for="fmt">保存形式</label>
+      <div class="row">
+        <select id="fmt">
+          <option value="jpg">JPEG（高画質）</option>
+          <option value="png">PNG（無劣化）</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="保存">
+    <div class="row" style="justify-content:space-between">
+      <h2>分割した画像</h2>
+      <button type="button" class="primary" id="zipBtn" hidden>ZIPでまとめて保存</button>
+    </div>
+    <div class="row" id="seqRow" hidden>
+      <button type="button" class="primary" id="seqBtn">1枚目から順番に保存</button>
+      <label for="seqInt">間隔</label>
+      <select id="seqInt">
+        <option value="0.5">0.5秒</option>
+        <option value="1" selected>1秒</option>
+        <option value="2">2秒</option>
+        <option value="3">3秒</option>
+        <option value="5">5秒</option>
+      </select>
+    </div>
+    <div class="pieces" id="pieces"></div>
+    <p class="hint" id="saveHint">画像を長押しでも保存できます。</p>
+    <p id="msg" role="status"></p>
+  </section>
+</main>
+
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+const st={src:null,W:0,H:0,name:"sample",n:5,dir:"h",unit:"pct",gap:8,trim:true,fmt:"jpg",isSample:true};
+let downloads=null, pieces=[], genToken=0, genTimer=0;
+
+/* ---------- sample image so the tool opens in a working state ---------- */
+function makeSample(){
+  const c=document.createElement("canvas");c.width=2400;c.height=1000;
+  const x=c.getContext("2d");
+  const sky=x.createLinearGradient(0,0,0,700);
+  sky.addColorStop(0,"#9fc3e6");sky.addColorStop(1,"#e4eef5");
+  x.fillStyle=sky;x.fillRect(0,0,2400,1000);
+  x.fillStyle="rgba(255,255,255,.75)";
+  [[380,210,120],[520,240,90],[1500,160,110],[1650,190,80],[2100,260,70]].forEach(([cx,cy,r])=>{x.beginPath();x.ellipse(cx,cy,r*1.8,r*.6,0,0,7);x.fill();});
+  const ridges=[["#9db3c2",520,60],["#6f8fa0",600,80],["#4f7b74",690,70],["#3c6a4a",780,60],["#2d5237",880,40]];
+  ridges.forEach(([col,base,amp],k)=>{
+    x.fillStyle=col;x.beginPath();x.moveTo(0,1000);
+    for(let i=0;i<=2400;i+=8){
+      const y=base-amp*Math.sin(i/(260-k*30)+k*1.7)-amp*.5*Math.sin(i/(97+k*11)+k)-amp*.2*Math.sin(i/31+k*3);
+      x.lineTo(i,y);
+    }
+    x.lineTo(2400,1000);x.closePath();x.fill();
+  });
+  x.fillStyle="rgba(255,255,255,.85)";x.font="700 44px sans-serif";x.fillText("SAMPLE",40,70);
+  return c;
+}
+
+/* ---------- geometry: edges are never trimmed, only the strips between pieces ---------- */
+function geom(){
+  const L=st.dir==="h"?st.W:st.H, n=st.n;
+  let w,cut,show;
+  if(st.unit==="pct"){
+    const r=st.gap/100;
+    if(st.trim){w=L/(n+(n-1)*r);cut=r*w;show=cut;}
+    else{w=L/n;cut=0;show=r*w;}
+  }else{
+    if(st.trim){cut=Math.max(0,Math.min(st.gap,(L-n)/(n-1)));w=(L-(n-1)*cut)/n;show=cut;}
+    else{w=L/n;cut=0;show=st.gap;}
+  }
+  const parts=[];
+  for(let i=0;i<n;i++){
+    const a=Math.round(i*(w+cut));
+    const b=i===n-1?L:Math.round(i*(w+cut)+w);
+    parts.push({a:a,len:Math.max(1,b-a)});
+  }
+  return {L:L,w:w,cut:cut,show:show,parts:parts};
+}
+
+function drawPreview(){
+  if(!st.src)return;
+  const g=geom(), cv=$("preview"), h=st.dir==="h";
+  const cross=h?st.H:st.W;
+  const total=st.n*g.w+(st.n-1)*g.show;
+  const maxPx=1400;
+  const s=Math.min(maxPx/(h?total:cross), 1800/(h?cross:total), 1);
+  cv.width=Math.max(1,Math.round((h?total:cross)*s));
+  cv.height=Math.max(1,Math.round((h?cross:total)*s));
+  const x=cv.getContext("2d");
+  x.clearRect(0,0,cv.width,cv.height);
+  g.parts.forEach((p,i)=>{
+    const d=i*(g.w+g.show)*s;
+    if(h)x.drawImage(st.src,p.a,0,p.len,st.H,d,0,g.w*s,cv.height);
+    else x.drawImage(st.src,0,p.a,st.W,p.len,0,d,cv.width,g.w*s);
+  });
+  const pw=g.parts[0].len, lost=Math.round(g.cut*(st.n-1));
+  const size=h?pw+" × "+st.H:st.W+" × "+pw;
+  $("stats").innerHTML=
+    "<span>元画像 <b>"+st.W+" × "+st.H+"</b> px"+(st.isSample?"（サンプル）":"")+"</span>"+
+    "<span>1枚 <b>"+size+"</b> px</span>"+
+    "<span>隙間 <b>"+(Math.round(g.show*10)/10)+"</b> px</span>"+
+    "<span>切り取る合計 <b>"+lost+"</b> px</span>";
+  $("trimHint").textContent=st.trim
+    ?"隙間に隠れる部分を捨てるので、並べると1枚の写真としてつながって見えます。左右（上下）の端は切りません。"
+    :"何も捨てずに等分します。並べると隙間の分だけ絵がずれて見えます。";
+}
+
+/* ---------- full-resolution pieces ---------- */
+function toBlob(canvas,type,q){return new Promise(res=>canvas.toBlob(res,type,q));}
+async function generate(){
+  const token=++genToken;
+  if(!st.src)return;
+  const g=geom(), h=st.dir==="h", out=[];
+  const type=st.fmt==="png"?"image/png":"image/jpeg";
+  const digits=String(st.n).length<2?2:String(st.n).length;
+  for(let i=0;i<g.parts.length;i++){
+    const p=g.parts[i], c=document.createElement("canvas");
+    c.width=h?p.len:st.W; c.height=h?st.H:p.len;
+    const x=c.getContext("2d");
+    if(h)x.drawImage(st.src,p.a,0,p.len,st.H,0,0,p.len,st.H);
+    else x.drawImage(st.src,0,p.a,st.W,p.len,0,0,st.W,p.len);
+    const blob=await toBlob(c,type,0.95);
+    if(token!==genToken)return;
+    if(!blob){say("画像の書き出しに失敗しました。写真が大きすぎる可能性があります。",true);return;}
+    out.push({blob:blob,name:st.name+"_"+String(i+1).padStart(digits,"0")+"."+st.fmt});
+  }
+  pieces.forEach(p=>URL.revokeObjectURL(p.url));
+  pieces=out.map(p=>Object.assign(p,{url:URL.createObjectURL(p.blob)}));
+  renderPieces();
+}
+function renderPieces(){
+  const box=$("pieces");box.textContent="";
+  pieces.forEach((p,i)=>{
+    const d=document.createElement("div");d.className="piece";
+    const im=document.createElement("img");im.src=p.url;im.alt=(i+1)+"枚目";
+    d.appendChild(im);
+    if(downloads){
+      const b=document.createElement("button");b.type="button";b.textContent=(i+1)+"枚目を保存";
+      b.addEventListener("click",()=>save(p.name,p.blob));
+      d.appendChild(b);
+    }
+    box.appendChild(d);
+  });
+  $("zipBtn").hidden=!downloads;
+  $("seqRow").hidden=!downloads;
+  $("saveHint").textContent=downloads?"左から順に投稿に添付してください。画像の長押しでも保存できます。":"画像を長押しして保存し、左から順に投稿に添付してください。";
+}
+function say(t,err){const m=$("msg");m.textContent=t||"";m.className=err?"err":"";}
+async function save(filename,data){
+  if(!downloads)return;
+  say("");
+  try{await downloads.save({filename:filename,data:data});say(filename+" を保存しました。");}
+  catch(e){
+    const c=e&&e.code;
+    if(c==="declined")return;
+    if(c==="rate_limited")say("保存の確認が続いています。少し待ってからもう一度押してください。",true);
+    else if(c==="too_large")say("ファイルが大きすぎて保存できませんでした。JPEGにするか分割数を増やしてください。",true);
+    else say("ここでは保存できませんでした。画像を長押しして保存してください。",true);
+  }
+}
+
+/* ---------- save all pieces in order, at a fixed interval ---------- */
+let seqRun=false;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+$("seqBtn").addEventListener("click",async()=>{
+  if(seqRun){seqRun=false;return;}
+  if(!downloads||!pieces.length)return;
+  seqRun=true;
+  const list=pieces.slice(), wait=Number($("seqInt").value)*1000, btn=$("seqBtn");
+  btn.textContent="止める";
+  let done=0, note="", err=false;
+  for(let i=0;i<list.length&&seqRun;i++){
+    say((i+1)+" / "+list.length+" 枚目を保存しています。");
+    let tries=0, ok=false;
+    while(seqRun){
+      try{await downloads.save({filename:list[i].name,data:list[i].blob});ok=true;break;}
+      catch(e){
+        const c=e&&e.code;
+        if(c==="rate_limited"&&tries++<6){await sleep(3000);continue;}
+        if(c==="declined")note="保存がキャンセルされたので止めました。";
+        else if(c==="rate_limited"){note="保存の確認が混み合っています。間隔を長くしてもう一度試してください。";err=true;}
+        else{note="ここでは保存できませんでした。画像を長押しして保存してください。";err=true;}
+        seqRun=false;
+      }
+    }
+    if(!ok)break;
+    done++;
+    if(i<list.length-1&&seqRun)await sleep(wait);
+  }
+  seqRun=false;btn.textContent="1枚目から順番に保存";
+  if(done===list.length)say(list.length+"枚すべて保存しました。");
+  else say(done+" / "+list.length+" 枚を保存しました。"+(note||"途中で止めました。"),err);
+});
+
+/* ---------- store-only ZIP ---------- */
+const crcT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=crcT[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+async function buildZip(files){
+  const enc=new TextEncoder(), parts=[], central=[];let off=0;
+  for(const f of files){
+    const data=new Uint8Array(await f.blob.arrayBuffer()), name=enc.encode(f.name), crc=crc32(data);
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(8,0,true);
+    lh.setUint16(10,0,true);lh.setUint16(12,0x21,true);
+    lh.setUint32(14,crc,true);lh.setUint32(18,data.length,true);lh.setUint32(22,data.length,true);
+    lh.setUint16(26,name.length,true);lh.setUint16(28,0,true);
+    parts.push(lh.buffer,name,data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);
+    ch.setUint16(10,0,true);ch.setUint16(12,0,true);ch.setUint16(14,0x21,true);
+    ch.setUint32(16,crc,true);ch.setUint32(20,data.length,true);ch.setUint32(24,data.length,true);
+    ch.setUint16(28,name.length,true);ch.setUint32(42,off,true);
+    central.push(ch.buffer,name);
+    off+=30+name.length+data.length;
+  }
+  let csize=0;central.forEach(b=>csize+=b.byteLength);
+  const end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);end.setUint16(8,files.length,true);end.setUint16(10,files.length,true);
+  end.setUint32(12,csize,true);end.setUint32(16,off,true);
+  return new Blob(parts.concat(central,[end.buffer]),{type:"application/zip"});
+}
+
+/* ---------- controls ---------- */
+function schedule(){
+  drawPreview();
+  clearTimeout(genTimer);
+  genTimer=setTimeout(generate,250);
+}
+function syncGapControls(){
+  const r=$("gapRange"), n=$("gapNum");
+  if(st.unit==="pct"){r.max=30;r.step=0.5;n.step=0.5;$("presets").hidden=false;}
+  else{
+    const L=st.dir==="h"?st.W:st.H;
+    r.max=Math.max(10,Math.round(L/st.n/2));r.step=1;n.step=1;$("presets").hidden=true;
+  }
+  r.value=st.gap;n.value=st.gap;
+}
+function setN(v){
+  v=Math.round(Number(v));if(!isFinite(v))return;
+  st.n=Math.max(2,Math.min(50,v));
+  $("nRange").value=Math.min(20,st.n);$("nNum").value=st.n;
+  syncGapControls();schedule();
+}
+function setGap(v){
+  v=Number(v);if(!isFinite(v)||v<0)v=0;
+  if(st.unit==="pct")v=Math.min(100,v);
+  st.gap=v;$("gapRange").value=v;$("gapNum").value=v;schedule();
+}
+$("nRange").addEventListener("input",e=>setN(e.target.value));
+$("nNum").addEventListener("change",e=>setN(e.target.value));
+$("gapRange").addEventListener("input",e=>setGap(e.target.value));
+$("gapNum").addEventListener("change",e=>setGap(e.target.value));
+$("gapUnit").addEventListener("change",e=>{
+  const g=geom();
+  st.unit=e.target.value;
+  st.gap=st.unit==="px"?Math.round(g.show):Math.round(g.show/g.w*1000)/10;
+  syncGapControls();schedule();
+});
+$("presets").addEventListener("click",e=>{const b=e.target.closest("button");if(b)setGap(b.dataset.g);});
+document.querySelectorAll("input[name=dir]").forEach(r=>r.addEventListener("change",e=>{st.dir=e.target.value;syncGapControls();schedule();}));
+$("trim").addEventListener("change",e=>{st.trim=e.target.checked;schedule();});
+$("fmt").addEventListener("change",e=>{st.fmt=e.target.value;schedule();});
+$("zipBtn").addEventListener("click",async()=>{
+  if(!pieces.length)return;
+  $("zipBtn").disabled=true;say("ZIPを作成中です。");
+  try{const z=await buildZip(pieces);await save(st.name+"_split"+st.n+".zip",z);}
+  catch(e){say("ZIPを作成できませんでした。1枚ずつ保存してください。",true);}
+  $("zipBtn").disabled=false;
+});
+$("file").addEventListener("change",e=>{
+  const f=e.target.files&&e.target.files[0];if(!f)return;
+  const url=URL.createObjectURL(f), im=new Image();
+  im.onload=()=>{
+    st.src=im;st.W=im.naturalWidth;st.H=im.naturalHeight;st.isSample=false;
+    st.name=(f.name||"photo").replace(/\.[^.]+$/,"").replace(/[^\w぀-ヿ一-鿿-]+/g,"_").slice(0,60)||"photo";
+    say("");syncGapControls();schedule();
+  };
+  im.onerror=()=>{URL.revokeObjectURL(url);say("この画像は読み込めませんでした。JPEGかPNGの写真を選んでください。",true);};
+  im.src=url;
+});
+
+/* ---------- start ---------- */
+const sample=makeSample();
+st.src=sample;st.W=sample.width;st.H=sample.height;
+syncGapControls();schedule();
+if(window.claude&&typeof window.claude.use==="function"){
+  window.claude.use("downloads").then(d=>{downloads=d||null;if(pieces.length)renderPieces();}).catch(()=>{});
+}else{
+  /* standalone (GitHub Pages etc.): ordinary browser download */
+  downloads={save:function(o){
+    const blob=o.data instanceof Blob?o.data:new Blob([o.data]);
+    const url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url;a.download=o.filename;a.style.display="none";
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+    return Promise.resolve({status:"saved"});
+  }};
+  renderPieces();
+}
+})();
+</script>
+</body>
+</html>

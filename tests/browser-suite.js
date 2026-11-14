@@ -22,7 +22,12 @@ document.querySelector('#run').onclick=async()=>{
   document.querySelector('#run').disabled=true;results.length=0;output.textContent='';
   try{
     await until(()=>frame.contentWindow.document.getElementById('pieces'));
-    w=frame.contentWindow;d=w.document;await ready(5);
+    w=frame.contentWindow;d=w.document;await ready(20);
+    await test('起動時は20枚・px指定・48 px・横・トリムON・JPEG',async()=>{
+      assert(el('nNum').value==='20'&&el('gapUnit').value==='px'&&el('gapNum').value==='48','incorrect defaults');
+      assert(el('dirH').checked&&el('trim').checked&&el('fmt').value==='jpg','incorrect X settings');
+      for(const im of d.querySelectorAll('.piece img'))assert(im.naturalWidth===600&&im.naturalHeight===800,'default panel size');
+    });
     for(const width of [320,360,390,430,768,1280])await test('画面幅 '+width+' pxでページの横はみ出しなし',async()=>{
       frame.width=width;await delay(90);
       assert(d.documentElement.scrollWidth<=width,'page scrollWidth='+d.documentElement.scrollWidth);
@@ -30,8 +35,18 @@ document.querySelector('#run').onclick=async()=>{
         const r=el(id).getBoundingClientRect();assert(r.left>=0&&r.right<=width,id+' outside viewport');
       }
     });frame.width=390;
+    await test('画像幅に応じたpx初期値・手入力の保持・X初期設定への復元',async()=>{
+      await load(canvas(2400,80));await ready(20);assert(el('gapNum').value==='9','2400 px conversion');
+      await load(canvas(4800,80));await ready(20);assert(el('gapNum').value==='18','4800 px conversion');
+      input('gapNum',12);await ready(20);await load(canvas(2400,80));await ready(20);
+      assert(el('gapNum').value==='12'&&el('gapRange').value==='12','manual px overwritten');
+      input('nNum',5);check('dirV',true);check('trim',false);input('fmt','png','change');await ready(5);
+      el('xPresetBtn').click();await ready(20);
+      assert(el('nNum').value==='20'&&el('gapUnit').value==='px'&&el('gapNum').value==='9'&&el('dirH').checked&&el('trim').checked&&el('fmt').value==='jpg','preset reset');
+      assert(el('gapNum').step==='1'&&el('gapNum').inputMode==='numeric','pixel controls not integer');
+    });
     await test('50分割とスライダーの値が一致',async()=>{input('nNum',50);await ready(50);assert(el('nRange').value==='50','slider differs');});
-    await test('100%とスライダーの値が一致',async()=>{input('gapNum',100);await ready(50);assert(el('gapRange').value==='100','gap slider differs');});
+    await test('100%とスライダーの値が一致',async()=>{input('gapUnit','pct','change');input('gapNum',100);await ready(50);assert(el('gapRange').value==='100','gap slider differs');});
     await test('○テスト画像から20枚の600 × 800 PNGを作成',async()=>{
       el('testBtn').click();await ready(20);
       for(const im of d.querySelectorAll('.piece img'))assert(im.naturalWidth===600&&im.naturalHeight===800,'incorrect panel size');

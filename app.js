@@ -2,30 +2,8 @@
 (function(){
 "use strict";
 const $=id=>document.getElementById(id);
-const st={src:null,W:0,H:0,name:"sample",n:5,dir:"h",unit:"pct",gap:8,trim:true,fmt:"jpg",isSample:true};
+const st={src:null,W:0,H:0,name:"sample",n:20,dir:"h",unit:"px",gap:48,autoGap:true,trim:true,fmt:"jpg",isSample:true};
 let downloads=null, pieces=[], genToken=0, genTimer=0, loadToken=0, busy=true, loading=false, sharing=false,sourceError="";
-
-/* ---------- sample image so the tool opens in a working state ---------- */
-function makeSample(){
-  const c=document.createElement("canvas");c.width=2400;c.height=1000;
-  const x=c.getContext("2d");
-  const sky=x.createLinearGradient(0,0,0,700);
-  sky.addColorStop(0,"#9fc3e6");sky.addColorStop(1,"#e4eef5");
-  x.fillStyle=sky;x.fillRect(0,0,2400,1000);
-  x.fillStyle="rgba(255,255,255,.75)";
-  [[380,210,120],[520,240,90],[1500,160,110],[1650,190,80],[2100,260,70]].forEach(([cx,cy,r])=>{x.beginPath();x.ellipse(cx,cy,r*1.8,r*.6,0,0,7);x.fill();});
-  const ridges=[["#9db3c2",520,60],["#6f8fa0",600,80],["#4f7b74",690,70],["#3c6a4a",780,60],["#2d5237",880,40]];
-  ridges.forEach(([col,base,amp],k)=>{
-    x.fillStyle=col;x.beginPath();x.moveTo(0,1000);
-    for(let i=0;i<=2400;i+=8){
-      const y=base-amp*Math.sin(i/(260-k*30)+k*1.7)-amp*.5*Math.sin(i/(97+k*11)+k)-amp*.2*Math.sin(i/31+k*3);
-      x.lineTo(i,y);
-    }
-    x.lineTo(2400,1000);x.closePath();x.fill();
-  });
-  x.fillStyle="rgba(255,255,255,.85)";x.font="700 44px sans-serif";x.fillText("SAMPLE",40,70);
-  return c;
-}
 
 /* ---------- geometry: edges are never trimmed, only the strips between pieces ---------- */
 function geom(){
@@ -229,6 +207,9 @@ function schedule(){
 function normalizeControls(){
   const L=st.dir==="h"?st.W:st.H,max=Math.min(50,L),min=Math.min(2,max);
   st.n=Math.max(min,Math.min(max,Math.round(st.n)));
+  // The 8% calibration starting point is converted into source pixels; a
+  // manually entered gap remains fixed when another image is loaded.
+  if(st.autoGap&&st.unit==="px")st.gap=Math.round(SplitCore.geometry({...st,unit:"pct",gap:8}).show);
   for(const id of ["nRange","nNum"]){$(id).min=min;$(id).max=max;if($(id)!==document.activeElement)$(id).value=st.n;}
   st.gap=Math.min(st.unit==="pct"?100:L,Math.max(0,st.gap));
   syncGapControls();
@@ -238,9 +219,13 @@ function syncGapControls(){
   if(st.unit==="pct"){r.max=100;r.step=0.1;n.step=0.1;$("presets").hidden=false;}
   else{
     const L=st.dir==="h"?st.W:st.H;
-    r.max=L;r.step=0.1;n.step=0.1;$("presets").hidden=true;
+    r.max=Math.min(L,Math.max(10,Math.ceil(L/st.n),st.gap));r.step=1;n.step=1;$("presets").hidden=true;
   }
   n.max=r.max;r.value=st.gap;if(n!==document.activeElement)n.value=st.gap;
+  n.inputMode=st.unit==="px"?"numeric":"decimal";
+  $("gapHint").textContent=st.unit==="px"
+    ?(st.autoGap?"初期値は1枚の幅の8%相当を元画像のpxに換算します。":"入力したpx値を保持します。")+" X画面上のpxとは異なります。○の継ぎ目を見て調整してください。"
+    :"8%は調整の出発点です。Xのアプリ・端末・表示方法で隙間は変わります。○の継ぎ目を見て調整してください。";
 }
 function setN(v){
   v=Math.round(Number(v));if(!isFinite(v))return;
@@ -250,8 +235,15 @@ function setN(v){
 function setGap(v){
   v=Number(v);if(!isFinite(v)||v<0)v=0;
   if(st.unit==="pct")v=Math.min(100,v);
-  st.gap=v;schedule();
+  else v=Math.round(v);
+  st.autoGap=false;st.gap=v;schedule();
 }
+function setXDefaults(fmt="jpg"){
+  Object.assign(st,{n:20,dir:"h",unit:"px",autoGap:true,trim:true,fmt});
+  $("dirH").checked=true;$("gapUnit").value="px";$("trim").checked=true;$("fmt").value=fmt;
+  $("mobilePreview").checked=true;
+}
+$("xPresetBtn").addEventListener("click",()=>{setXDefaults();schedule();});
 $("nRange").addEventListener("input",e=>setN(e.target.value));
 $("nNum").addEventListener("input",e=>{if(e.target.value!=="")setN(e.target.value);});
 $("nNum").addEventListener("change",()=>{$("nNum").value=st.n;schedule();});
@@ -260,8 +252,8 @@ $("gapNum").addEventListener("input",e=>{if(e.target.value!=="")setGap(e.target.
 $("gapNum").addEventListener("change",()=>{$("gapNum").value=st.gap;schedule();});
 $("gapUnit").addEventListener("change",e=>{
   const g=geom();
-  st.unit=e.target.value;
-  st.gap=st.unit==="px"?Math.round(g.show*10)/10:Math.round(g.show/g.w*1000)/10;
+  st.autoGap=false;st.unit=e.target.value;
+  st.gap=st.unit==="px"?Math.round(g.show):Math.round(g.show/g.w*1000)/10;
   syncGapControls();schedule();
 });
 $("presets").addEventListener("click",e=>{const b=e.target.closest("button");if(b)setGap(b.dataset.g);});
@@ -304,13 +296,12 @@ $("file").addEventListener("change",e=>{
 $("testBtn").addEventListener("click",()=>{
   ++loadToken;loading=false;sourceError="";
   const c=CirclePattern.draw(document.createElement("canvas"));
-  Object.assign(st,{src:c,W:c.width,H:c.height,name:"circle_test_20_gap8",n:20,dir:"h",unit:"pct",gap:8,trim:true,fmt:"png",isSample:false});
-  $("dirH").checked=true;$("gapUnit").value="pct";$("trim").checked=true;$("fmt").value="png";
-  $("mobilePreview").checked=true;$("mobileStrip").scrollLeft=0;schedule();
+  Object.assign(st,{src:c,W:c.width,H:c.height,name:"circle_test_20_gap8",isSample:false});
+  setXDefaults("png");$("mobileStrip").scrollLeft=0;schedule();
 });
 
 /* ---------- start ---------- */
-const sample=makeSample();
+const sample=CirclePattern.draw(document.createElement("canvas"));
 st.src=sample;st.W=sample.width;st.H=sample.height;
 syncGapControls();schedule();
 if(window.claude&&typeof window.claude.use==="function"){

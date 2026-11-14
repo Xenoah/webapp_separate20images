@@ -1,0 +1,8 @@
+{
+  "name": "webapp-separate20images",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/core.test.cjs",
+    "test:serve": "python3 -m http.server 8765"
+  }
+}

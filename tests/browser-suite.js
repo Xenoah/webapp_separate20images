@@ -103,6 +103,32 @@ document.querySelector('#run').onclick=async()=>{
       const end=bytes.length-22;assert(view.getUint32(end,true)===0x06054b50,'missing ZIP end');assert(view.getUint16(end+10,true)===20,'central count');
       assert(filename==='丸テスト_split20.zip','wrong archive name');
     });
+    await test('ファイル共有は20枚を連番で渡し、キャンセル後も保存可能（API模擬）',async()=>{
+      el('testBtn').click();await ready(20);
+      const oldShare=Object.getOwnPropertyDescriptor(w.navigator,'share'),oldCan=Object.getOwnPropertyDescriptor(w.navigator,'canShare');
+      let sent;
+      try{
+        Object.defineProperty(w.navigator,'canShare',{configurable:true,value:({files})=>files.length===20});
+        Object.defineProperty(w.navigator,'share',{configurable:true,value:async({files})=>{sent=files;}});
+        input('nNum',20);await ready(20);assert(!el('shareBtn').hidden,'share unavailable');el('shareBtn').click();
+        await until(()=>sent&&!el('zipBtn').disabled);assert(sent.length===20,'wrong shared count');
+        sent.forEach((f,i)=>assert(f.name==='circle_test_20_gap8_'+String(i+1).padStart(2,'0')+'.png'&&f.type==='image/png'&&f.size>0,'share file order/type'));
+        Object.defineProperty(w.navigator,'share',{configurable:true,value:async()=>{throw new w.DOMException('cancel','AbortError');}});
+        el('shareBtn').click();await until(()=>!el('zipBtn').disabled);assert(!el('shareBtn').disabled,'share stuck after cancel');
+      }finally{
+        if(oldShare)Object.defineProperty(w.navigator,'share',oldShare);else delete w.navigator.share;
+        if(oldCan)Object.defineProperty(w.navigator,'canShare',oldCan);else delete w.navigator.canShare;
+      }
+    });
+    await test('書出し失敗では旧画像を保存させず、再生成で復帰（失敗を模擬）',async()=>{
+      const original=w.HTMLCanvasElement.prototype.toBlob;
+      try{
+        w.HTMLCanvasElement.prototype.toBlob=function(cb){w.setTimeout(()=>cb(null),0);};
+        input('nNum',19);await until(()=>el('msg').textContent.includes('書き出しに失敗'));
+        assert(d.querySelectorAll('.piece img').length===0,'stale pieces remain');assert(el('zipBtn').disabled,'stale ZIP enabled');
+      }finally{w.HTMLCanvasElement.prototype.toBlob=original;}
+      el('testBtn').click();await ready(20);
+    });
     el('testBtn').click();await ready(20);
   }catch(e){results.push({name:'test harness',pass:false,error:e.stack});}
   const failed=results.filter(r=>!r.pass);status.textContent=(failed.length?'FAIL':'PASS')+' '+(results.length-failed.length)+' / '+results.length;status.className=failed.length?'fail':'pass';

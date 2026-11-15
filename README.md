@@ -4,6 +4,9 @@
 
 https://xenoah.github.io/webapp_separate20images/
 
+<img width="1774" height="887" alt="隙間トリム写真分割バナー" src="https://github.com/user-attachments/assets/ef2d5479-1d2f-40fe-92a1-698d9094a8a3" />
+
+
 ## 初期設定
 
 20枚・横方向・隙間px指定・トリムON・JPEG・スマホ横スクロール表示で開始します。初期画像は○テスト画像です。
